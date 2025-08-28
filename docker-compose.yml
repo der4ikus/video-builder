@@ -1,0 +1,123 @@
+version: '3.8'
+
+services:
+  # Redis для очередей задач
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # MinIO для хранения файлов
+  minio:
+    image: minio/minio:latest
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # Создание bucket в MinIO
+  minio-setup:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 10;
+      /usr/bin/mc alias set myminio http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin123};
+      /usr/bin/mc mb myminio/videos --ignore-existing;
+      /usr/bin/mc policy set public myminio/videos;
+      exit 0;
+      "
+
+  # FastAPI сервер
+  api:
+    build: 
+      context: ./api
+      dockerfile: Dockerfile
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      - MINIO_URL=${MINIO_URL:-minio:9000}
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin123}
+      - MAX_FILE_SIZE=${MAX_FILE_SIZE:-500MB}
+      - CLEANUP_INTERVAL=${CLEANUP_INTERVAL:-3600}
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - /tmp:/tmp
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # GPU воркеры для обработки видео
+  worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    environment:
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      - MINIO_URL=${MINIO_URL:-minio:9000}
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin123}
+      - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-1}
+      - GPU_MEMORY_LIMIT=${GPU_MEMORY_LIMIT:-6144}
+      - DEFAULT_TARGET_FPS=${DEFAULT_TARGET_FPS:-16}
+      - DEFAULT_RESOLUTION=${DEFAULT_RESOLUTION:-1920:1080}
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - /tmp:/tmp
+    deploy:
+      replicas: ${WORKER_REPLICAS:-4}
+    runtime: nvidia
+
+  # Nginx для балансировки нагрузки (опционально)
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+
+volumes:
+  redis_data:
+  minio_data:
+
+networks:
+  default:
+    driver: bridge
