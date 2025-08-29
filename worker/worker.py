@@ -18,6 +18,7 @@ from typing import Dict, Any, Optional
 import torch
 from celery import Celery
 from minio import Minio
+import urllib.request
 from minio.error import S3Error
 
 # Настройка логирования
@@ -173,6 +174,29 @@ def upload_to_minio(video_path: str, job_id: str) -> str:
     except Exception as e:
         logger.error(f"Ошибка загрузки в MinIO: {e}")
         raise
+
+def download_tts_models():
+    """Скачивает модели TTS если их нет"""
+    models_dir = Path("/app/models")
+    code_dir = Path("/app/code")
+    
+    models = {
+        "kokoro-v1.0.onnx": "https://github.com/nazdridoy/kokoro-tts/releases/download/v1.0.0/kokoro-v1.0.onnx",
+        "voices-v1.0.bin": "https://github.com/nazdridoy/kokoro-tts/releases/download/v1.0.0/voices-v1.0.bin"
+    }
+    
+    for filename, url in models.items():
+        model_path = code_dir / filename
+        if not model_path.exists():
+            logger.info(f"Скачиваем модель {filename}...")
+            try:
+                models_dir.mkdir(exist_ok=True)
+                temp_path = models_dir / filename
+                urllib.request.urlretrieve(url, temp_path)
+                shutil.copy2(temp_path, model_path)
+                logger.info(f"Модель {filename} скачана")
+            except Exception as e:
+                logger.error(f"Ошибка скачивания {filename}: {e}")
 
 def cleanup_job_directory(job_dir: Path):
     """Безопасная очистка временной папки"""
@@ -383,6 +407,9 @@ def health_check():
         }
 
 if __name__ == "__main__":
+    # Скачиваем модели при первом запуске
+    download_tts_models()
+    
     # Настройка GPU при запуске
     setup_gpu()
     
