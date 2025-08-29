@@ -1,13 +1,12 @@
-FROM ubuntu:22.04
+FROM nvidia/cuda:11.8-runtime-ubuntu22.04
 
-# Устанавливаем системные зависимости включая CUDA toolkit
+# Устанавливаем системные зависимости
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     ffmpeg \
     curl \
     wget \
-    nvidia-cuda-toolkit \
     && rm -rf /var/lib/apt/lists/*
 
 # Создаем рабочую директорию
@@ -23,15 +22,8 @@ COPY . .
 # Создаем папки для моделей и временных файлов
 RUN mkdir -p /app/models /tmp/video_jobs
 
-# Скачиваем модели TTS (если они не включены в образ)
-RUN if [ ! -f /app/models/kokoro-v1.0.onnx ]; then \
-    echo "Downloading TTS models..." && \
-    wget -O /app/models/kokoro-v1.0.onnx https://github.com/nazdridoy/kokoro-tts/releases/download/v1.0.0/kokoro-v1.0.onnx && \
-    wget -O /app/models/voices-v1.0.bin https://github.com/nazdridoy/kokoro-tts/releases/download/v1.0.0/voices-v1.0.bin; \
-    fi
-
-# Копируем модели в рабочую папку кода
-RUN cp /app/models/* /app/code/ 2>/dev/null || true
+# Модели TTS будут скачаны при первом запуске
+# (убираем из Docker build для ускорения)
 
 # Создаем пользователя для безопасности
 RUN useradd -m -u 1000 worker && chown -R worker:worker /app /tmp/video_jobs
@@ -41,8 +33,7 @@ USER worker
 ENV NVIDIA_VISIBLE_DEVICES=all
 ENV CUDA_VISIBLE_DEVICES=0
 
-# Прогреваем GPU и проверяем доступность
-RUN python3 -c "import torch; print('CUDA available:', torch.cuda.is_available()); print('GPU count:', torch.cuda.device_count())" || echo "GPU check failed, continuing..."
+# GPU проверка будет при запуске контейнера
 
 # Healthcheck
 HEALTHCHECK --interval=60s --timeout=30s --start-period=10s --retries=3 \
