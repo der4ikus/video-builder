@@ -1,4 +1,4 @@
-FROM nvidia/cuda:11.8-runtime-ubuntu22.04
+FROM pytorch/pytorch:2.0.1-cuda11.7-cudnn8-runtime
 
 # Устанавливаем системные зависимости
 RUN apt-get update && apt-get install -y \
