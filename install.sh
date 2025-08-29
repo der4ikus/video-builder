@@ -36,17 +36,15 @@ echo -e "${BLUE}🔧 Установка зависимостей...${NC}"
 # Устанавливаем только необходимые пакеты без обновления системы
 apt-get install -y --no-install-recommends curl wget git python3 python3-pip ffmpeg htop nano
 
-# Установка Docker
+# Проверяем Docker (должен быть в vastai/base-image)
 if ! command -v docker &> /dev/null; then
     echo -e "${BLUE}🐳 Установка Docker...${NC}"
     curl -fsSL https://get.docker.com -o get-docker.sh
     sh get-docker.sh
     rm get-docker.sh
-    systemctl enable docker
-    systemctl start docker
 fi
 
-# Установка Docker Compose
+# Проверяем Docker Compose
 if ! command -v docker-compose &> /dev/null; then
     echo -e "${BLUE}🔧 Установка Docker Compose...${NC}"
     COMPOSE_VERSION=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep 'tag_name' | cut -d\" -f4)
@@ -54,21 +52,8 @@ if ! command -v docker-compose &> /dev/null; then
     chmod +x /usr/local/bin/docker-compose
 fi
 
-# Настройка NVIDIA Docker (если есть GPU)
-if command -v nvidia-smi &> /dev/null; then
-    echo -e "${BLUE}🎮 Настройка NVIDIA Docker...${NC}"
-    distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
-    
-    # Добавляем NVIDIA репозиторий без интерактивных запросов
-    curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg 2>/dev/null || true
-    curl -s -L https://nvidia.github.io/libnvidia-container/$distribution/libnvidia-container.list | \
-        sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
-        tee /etc/apt/sources.list.d/nvidia-container-toolkit.list >/dev/null
-    
-    apt-get update -y
-    apt-get install -y --no-install-recommends nvidia-container-toolkit
-    systemctl restart docker
-fi
+# NVIDIA поддержка уже есть в vastai/base-image
+echo -e "${BLUE}🎮 GPU поддержка из vastai/base-image${NC}"
 
 # Клонирование репозитория
 echo -e "${BLUE}📥 Скачивание Fast Video Builder...${NC}"
